@@ -1,0 +1,5 @@
+.girafe_container_std svg {
+	max-height: none!important; /* Needed to make girafe outputs fill the screen */
+	max-width: none!important;
+	/* height:70vh!important; */
+}
