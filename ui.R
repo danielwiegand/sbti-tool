@@ -7,6 +7,7 @@ library(shinyjs)
 library(shinyWidgets)
 library(ggiraph)
 library(tidyr)
+library(stringr)
 
 # UI
 ui <- fluidPage(
@@ -59,8 +60,12 @@ ui <- fluidPage(
                               choices = c("Fixed market share", "Target year output"),
                               selected = "",
                               selectize = T),
-                  numericInput(inputId = "target_year_output",
-                               label = "Target year output",
+                  numericInput(inputId = "base_year_output",
+                               label = "Base year output",
+                               value = "",
+                               min = 0),
+                  numericInput(inputId = "growth",
+                               label = "Forecasted growth",
                                value = "",
                                min = 0),
                   numericInput(inputId = "scope_1_emissions",
@@ -77,9 +82,9 @@ ui <- fluidPage(
                 
                 mainPanel(
                   
-                  girafeOutput("test", height = "100%"),
+                  girafeOutput("abs_contr_wb2c", height = "100%"),
                   
-                  girafeOutput("test2", height = "100%")
+                  girafeOutput("abs_contr_1.5c", height = "100%")
                   
                   
                 )
