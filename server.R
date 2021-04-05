@@ -14,10 +14,20 @@ server <- function(input, output) {
   # SOURCE
   # source("pathway.R", local = T)
   
+  # BASE DATA ####
+  
   filter_etp_data <- function(filter_by) {
     ETP_DATA %>%
-      # Here: Years > 2050 are filtered out for the etp data
-      filter(Sector.ETP == input$sda_sector, Flow.1 == filter_by, Region == "World", year <= 2050) %>%
+      filter(Sector.ETP == input$sda_sector, Flow.1 == filter_by, Region == "World", 
+             year >= input$base_year, year <= input$target_year) %>%
+      column_to_rownames("year") %>%
+      select(value)
+  }
+  
+  get_etp_2050_value <- function(filter_by) {
+    ETP_DATA %>%
+      filter(Sector.ETP == input$sda_sector, Flow.1 == filter_by, Region == "World", 
+             year == 2050) %>%
       column_to_rownames("year") %>%
       select(value)
   }
@@ -61,22 +71,51 @@ server <- function(input, output) {
     )
   })
   
-  # ABSOLUTE CONTRACTION
+  # SCIENCE-BASED TARGET CALCULATION ####
   
-  calculate_absolute_contraction = function(emissions, scenario){
-    annual_reduction = ifelse(scenario == "WB2C", ANNUAL_REDUCTION_WB2C, ANNUAL_REDUCTION_1.5C)
-    reduction = emissions * annual_reduction
+  # 1. Absolute contraction
+  calculate_absolute_contraction <- function(emissions, scenario){
+    annual_reduction <- ifelse(scenario == "WB2C", ANNUAL_REDUCTION_WB2C, ANNUAL_REDUCTION_1.5C)
+    reduction <- emissions * annual_reduction
     # Take the cumsum and reduce reduction amount by reduction[1], because we want to start reducing in the 
     # year following the base year (no reductions should apply to base year itself):
-    reduction = cumsum(reduction) - reduction[1]
-    out = emissions - reduction
+    reduction <- cumsum(reduction) - reduction[1]
+    out <- emissions - reduction
     return(out)
   }
   
-  prepare_abs_contr_dataframe <- function(scenario) {
+  # 2. Sectoral decarbonization approach (SDA)
+  # https://sciencebasedtargets.org/resources/files/Sectoral-Decarbonization-Approach-Report.pdf
+  calculate_sda <- function(emissions, scenario) {
+    sector_emission_intensity_2050 <- unlist(get_etp_2050_value("Emissions") / get_etp_2050_value("Output"))
+    emissions <- emissions[1]
+    initial_co2_intensity <- emissions / input$base_year_output
+    # Step 1: initial performance
+    initial_performance <- initial_co2_intensity - sector_emission_intensity_2050
+    # # Step 2: market share parameter
+    market_share_parameter <- (input$base_year_output / sector_activity()[input$base_year,]) / (company_activity() / sector_activity())
+    # Cap market share parameter to 1, as described in "Foundations of SBT target setting"
+    # (refer to https://sciencebasedtargets.org/wp-content/uploads/2019/04/foundations-of-SBT-setting.pdf, p.31)
+    market_share_parameter[market_share_parameter > 1] <- 1
+    # Step 3: decarbonization index
+    decarbonization_index <- (sector_emission_intensity() - sector_emission_intensity_2050) / (sector_emission_intensity()[input$base_year,] - sector_emission_intensity_2050)
+    # Step 4: intensity target company
+    intensity_target <- initial_performance * decarbonization_index * market_share_parameter + sector_emission_intensity_2050
+    emission_target <- as.double(unlist(intensity_target * company_activity()))
+    return(emission_target)
+  }
+
+  # MAIN PLOT ####
+  
+  prepare_main_plot <- function(scenario) {
+    if(input$target_setting_method == "Absolute Contraction Approach") {
+      target_setting_function <- calculate_absolute_contraction
+    } else {
+      target_setting_function <- calculate_sda
+    }
     out <- base_dataframe() %>%
-      mutate(scope1 = calculate_absolute_contraction(scope1, scenario),
-             scope2 = calculate_absolute_contraction(scope2, scenario)) %>%
+      mutate(scope1 = target_setting_function(scope1, scenario),
+             scope2 = target_setting_function(scope2, scenario)) %>%
       pivot_longer(!year, names_to = "scope", values_to = "emissions") %>%
       mutate(scenario = scenario,
              # Keep only values >= 0
@@ -84,88 +123,104 @@ server <- function(input, output) {
     return(out)
   }
   
-  result_absolute_contraction = reactive({
+  result_main_plot = reactive({
     req(input$scope_1_emissions, input$scope_2_emissions)
-    wb2c <- prepare_abs_contr_dataframe("WB2C")
-    one.5C <- prepare_abs_contr_dataframe("1.5C")
-    out <- rbind(wb2c, one.5C) %>%
+    if(input$target_setting_method == "Absolute Contraction Approach") {
+      scenarios <- c("WB2C", "1.5C")
+    } else {
+      scenarios <- c(input$sda_scenario)
+    }
+    out <- data.frame()
+    for (scenario in scenarios) {
+      results <- prepare_main_plot(scenario)
+      out <- rbind(out, results)
+    }
+    out <- out %>%
       rownames_to_column("data_id")
     return(out)
   })
-  
-  plot_absolute_contraction <- function(data, selected_scenario) {
-    data <- data %>%
-      filter(scenario == selected_scenario)
+
+  plot_main_plot <- function(data) {
     out <- ggplot(data, aes(x = year, y = emissions, col = scope)) +
       geom_point_interactive(aes(tooltip = paste0(scope, " (", year, "): ", emissions), data_id = data_id)) +
       geom_line_interactive(aes(tooltip = scope)) +
       scale_x_continuous(breaks = seq(2015, 2050, by = 5)) +
       scale_y_continuous(limits = c(0, NA)) +
-      labs(title = paste0("Scenario ", selected_scenario),  x = "Year", y = "Emissions") +
+      facet_wrap(~scenario, ncol = 1) +
+      # labs(title = paste0("Scenario ", selected_scenario),  x = "Year", y = "Emissions") +
       theme_minimal()
     return(out)
     }
 
-  output$abs_contr_wb2c <- renderGirafe(
-    girafe(ggobj = plot_absolute_contraction(result_absolute_contraction(), "WB2C"), width_svg = 10, height_svg = 3.5) %>%
+  output$main_plot <- renderGirafe(
+    girafe(ggobj = plot_main_plot(result_main_plot()), width_svg = 10, height_svg = 3.5) %>%
       girafe_options(opts_hover(css = "stroke:grey; stroke-width:2px; fill:none; fill-opacity:0"))
   )
   
-  output$abs_contr_1.5c <- renderGirafe(
-    girafe(ggobj = plot_absolute_contraction(result_absolute_contraction(), "1.5C"), width_svg = 10, height_svg = 3.5) %>%
-      girafe_options(opts_hover(css = "stroke:grey; stroke-width:2px; fill:none; fill-opacity:0"))
-  )
+  # RESULTS TABLE ####
   
-  # SECTORAL DECARBONIZATION APPROACH
-  
-  # https://sciencebasedtargets.org/resources/files/Sectoral-Decarbonization-Approach-Report.pdf
-  
-  calculate_sda <- function(emissions) {
-
-    initial_co2_intensity <- emissions / input$base_year_output
-
-    # Step 1: initial performance
-    initial_performance <- initial_co2_intensity - sector_emission_intensity()["2050",]
-    
-    # Step 2: market share parameter
-    market_share_parameter <- (input$base_year_output / sector_activity()[input$base_year,]) / (company_activity() / sector_activity())
-    
-    # Cap market share parameter to 1, as described in "Foundations of SBT target setting"
-    # (refer to https://sciencebasedtargets.org/wp-content/uploads/2019/04/foundations-of-SBT-setting.pdf, p.31)
-    market_share_parameter[market_share_parameter > 1] <- 1
-    
-    # Step 3: decarbonization index
-    decarbonization_index <- (sector_emission_intensity() - sector_emission_intensity()["2050",]) / (sector_emission_intensity()[input$base_year,] - sector_emission_intensity()["2050",])
-    
-    # Step 4: intensity target company
-    intensity_target <- initial_performance * decarbonization_index * market_share_parameter + sector_emission_intensity()["2050",]
-    
-    emission_target <- as.double(unlist(intensity_target * company_activity()))
-    
-    return(emission_target)
-    
-  }
-  
-  #!!! DOPPELUNG MIT ABS CONTR AUFLÖSEN!!!
-  prepare_sda_dataframe <- function() {
-    req(input$scope_1_emissions, input$scope_2_emissions)
-    out <- base_dataframe() %>%
-      mutate(scope1 = calculate_sda(input$scope_1_emissions),
-             scope2 = calculate_sda(input$scope_2_emissions)
-             ) %>%
-      pivot_longer(!year, names_to = "scope", values_to = "emissions") %>%
-      mutate(emissions = ifelse(emissions >= 0, emissions, 0)) # Keep only values >= 0
-    return(out)
-  }
-  
-  #!!! DOPPELUNG MIT ABS CONTR AUFLÖSEN!!!
-  result_sda = reactive({
-    req(input$scope_1_emissions, input$scope_2_emissions)
-    prepare_sda_dataframe() %>%
-      rownames_to_column("data_id")
+  results_table <- reactive({
+    out <- result_main_plot() %>%
+      filter(year %in% c(input$base_year, input$target_year)) %>%
+      group_by(year, scope, scenario) %>%
+      summarize(emissions = sum(emissions)) %>%
+      pivot_wider(names_from = "year", values_from = "emissions") %>%
+      arrange(scenario, scope) %>%
+      ungroup() %>%
+      rename(`Base year` = !!names(.[3]), `Target year` = !!names(.[4]), Scenario = scenario, Scope = scope) %>%
+      mutate(Reduction = paste0(round((1 - `Target year` / `Base year`) * 100), "%"),
+             `Base year` = paste0(round(`Base year`, 2), " t CO2e"),
+             `Target year` = paste0(round(`Target year`, 2), " t CO2e"))
   })
   
-  observe(print(
-    result_sda()
-  ))
+  output$results_table <- renderDataTable(
+    results_table(),
+    options = list(
+      paging = FALSE,
+      searching = FALSE,
+      info = FALSE
+    )
+  )
+  
+  # INTENSITY PLOT ####
+  
+  observe(print(intensity_table()))
+  
+  intensity_table <- reactive({
+    # result_main_plot() %>%
+    #   mutate()
+    # sector_emission_intensity()
+    ETP_DATA
+  })
+  
+  # SHINYJS ####
+  
+  hide_elements <- function(output_names){
+    lapply(output_names, function(output_name){
+      shinyjs::hide(output_name)
+    })
+  }
+  
+  show_elements <- function(output_names){
+    lapply(output_names, function(output_name){
+      shinyjs::show(output_name)
+    })
+  }
+  
+  observeEvent(input$target_setting_method, {
+    if(input$target_setting_method == "Absolute Contraction Approach") {
+      hide_elements(c("sda_scenario", "sda_sector", "projected_output_measure"))
+    } else if(input$target_setting_method == "Sectoral Decarbonization Approach") {
+      show_elements(c("sda_scenario", "sda_sector", "projected_output_measure"))
+    }
+  })
+  
+  observeEvent(input$sda_sector, {
+    if(input$sda_sector == "Power") {
+      show_elements("sda_scenario")
+    } else {
+      hide_elements("sda_scenario")
+    }
+  })
+  
 }

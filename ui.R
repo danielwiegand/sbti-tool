@@ -27,7 +27,7 @@ ui <- fluidPage(
                 
                 # SIDEBAR PANEL
                 
-                sidebarPanel(
+                sidebarPanel(width = 3,
                   selectInput(inputId = "target_setting_method",
                               label = "Target setting method",
                               choices = c("Absolute Contraction Approach", "Sectoral Decarbonization Approach"),
@@ -82,9 +82,16 @@ ui <- fluidPage(
                 
                 mainPanel(
                   
-                  girafeOutput("abs_contr_wb2c", height = "100%"),
+                  girafeOutput("main_plot", height = "100%"),
                   
-                  girafeOutput("abs_contr_1.5c", height = "100%")
+                  fluidRow(
+                    column(7,
+                  
+                      dataTableOutput("results_table")
+                      
+                    )
+                    
+                  )
                   
                   
                 )
