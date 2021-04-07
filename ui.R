@@ -27,7 +27,7 @@ ui <- fluidPage(
                 
                 # SIDEBAR PANEL
                 
-                sidebarPanel(width = 3,
+                sidebarPanel(width = 2,
                   selectInput(inputId = "target_setting_method",
                               label = "Target setting method",
                               choices = c("Absolute Contraction Approach", "Sectoral Decarbonization Approach"),
@@ -57,7 +57,7 @@ ui <- fluidPage(
                               sep = ""),
                   selectInput(inputId = "projected_output_measure",
                               label = "Projected output measure",
-                              choices = c("Fixed market share", "Target year output"),
+                              choices = c("Growth rate", "Fixed market share", "Target year output"),
                               selected = "",
                               selectize = T),
                   numericInput(inputId = "base_year_output",

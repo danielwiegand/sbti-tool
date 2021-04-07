@@ -8,8 +8,7 @@ ETP_DATA <- read.csv("./data/etp.csv", stringsAsFactors = F) %>%
   mutate(year = str_replace(year, "X", ""),
          year = as.numeric(year))
 
-
-server <- function(input, output) {
+server <- function(input, output, session) {
   
   # SOURCE
   # source("pathway.R", local = T)
@@ -18,7 +17,7 @@ server <- function(input, output) {
   
   filter_etp_data <- function(filter_by) {
     ETP_DATA %>%
-      filter(Sector.ETP == input$sda_sector, Flow.1 == filter_by, Region == "World", 
+      filter(Sector.ETP == input$sda_sector, Flow.1 == filter_by, Region == "World", Scenario == input$sda_scenario,
              year >= input$base_year, year <= input$target_year) %>%
       column_to_rownames("year") %>%
       select(value)
@@ -26,14 +25,23 @@ server <- function(input, output) {
   
   get_etp_2050_value <- function(filter_by) {
     ETP_DATA %>%
-      filter(Sector.ETP == input$sda_sector, Flow.1 == filter_by, Region == "World", 
+      filter(Sector.ETP == input$sda_sector, Flow.1 == filter_by, Region == "World", Scenario == input$sda_scenario,
              year == 2050) %>%
       column_to_rownames("year") %>%
       select(value)
   }
   
+  normalize_column <- function(x) {
+    return(x / x[1])
+  }
+  
   sector_activity <- reactive({
     filter_etp_data("Output")
+  })
+  
+  normalized_sector_activity <- reactive({
+    sector_activity() %>%
+      mutate(value = normalize_column(value))
   })
   
   sector_emissions <- reactive({
@@ -49,14 +57,35 @@ server <- function(input, output) {
   })
   
   normalized_company_activity <- reactive({
-    data.frame(
+    
+    data <- data.frame(
       year = seq(input$base_year, input$target_year),
       value = input$growth / 100 + 1
-    ) %>%
-      mutate(value = case_when(year == input$base_year ~ 1, TRUE ~ value),
-             value = cumprod(value)) %>%
-      column_to_rownames("year") %>%
-      select(value)
+    )
+    
+    if(input$projected_output_measure == "Growth rate") {
+      out <- data %>%
+        mutate(value = case_when(year == input$base_year ~ 1, TRUE ~ value),
+               value = cumprod(value)) %>%
+        column_to_rownames("year") %>%
+        select(value)
+    } else if(input$projected_output_measure == "Target year output") {
+      yearly_difference <- (input$growth - input$base_year_output) / (input$target_year - as.numeric(input$base_year))
+      out <- data %>%
+        mutate(absolute_value = yearly_difference,
+               absolute_value = case_when(year == input$base_year ~ as.double(input$base_year_output),
+                                          TRUE ~ absolute_value),
+               absolute_value = cumsum(absolute_value),
+               value = normalize_column(absolute_value)) %>%
+        column_to_rownames("year") %>%
+        select(value)
+    } else if(input$projected_output_measure == "Fixed market share") {
+      out <- data %>%
+        mutate(value = normalized_sector_activity()) %>%
+        column_to_rownames("year") %>%
+        select(value)
+    }
+    # return(out)
   })
   
   company_activity <- reactive({
@@ -69,6 +98,14 @@ server <- function(input, output) {
       scope1 = input$scope_1_emissions,
       scope2 = input$scope_2_emissions
     )
+  })
+  
+  activity_unit <- reactive({
+    all_activity_units <- data.frame(
+      sda_sector = c("Power", "Iron and steel", "Cement", "Aluminium", "Pulp and paper", "Services - Buildings"),
+      activity_unit = c("MWh gross electricity (+ heat)", "Tonnes of crude steel", "Tonnes of cement", "Tonnes of aluminium", "Tonnes of paper and board", "Square meters")
+    )
+    out <- all_activity_units$activity_unit[all_activity_units$sda_sector == input$sda_sector]
   })
   
   # SCIENCE-BASED TARGET CALCULATION ####
@@ -184,8 +221,6 @@ server <- function(input, output) {
   
   # INTENSITY PLOT ####
   
-  observe(print(intensity_table()))
-  
   intensity_table <- reactive({
     # result_main_plot() %>%
     #   mutate()
@@ -209,18 +244,37 @@ server <- function(input, output) {
   
   observeEvent(input$target_setting_method, {
     if(input$target_setting_method == "Absolute Contraction Approach") {
-      hide_elements(c("sda_scenario", "sda_sector", "projected_output_measure"))
+      updateSelectInput(session, inputId = "sda_scenario", selected = "ETP B2DS")
+      hide_elements(c("sda_scenario", "sda_sector", "projected_output_measure", "base_year_output", "growth"))
     } else if(input$target_setting_method == "Sectoral Decarbonization Approach") {
-      show_elements(c("sda_scenario", "sda_sector", "projected_output_measure"))
+      show_elements(c("sda_scenario", "sda_sector", "projected_output_measure", "base_year_output", "growth"))
     }
   })
   
   observeEvent(input$sda_sector, {
-    if(input$sda_sector == "Power") {
+    if(input$target_setting_method == "Sectoral Decarbonization Approach" & input$sda_sector == "Power") {
       show_elements("sda_scenario")
     } else {
       hide_elements("sda_scenario")
+      updateSelectInput(session, inputId = "sda_scenario", selected = "ETP B2DS")
     }
   })
   
+  observeEvent(input$sda_sector, {
+    updateSelectInput(session, "base_year_output", label = paste0("Base year output in ", activity_unit()))
+  })
+  
+  observeEvent({input$projected_output_measure
+               input$sda_sector}, {
+    if(input$projected_output_measure == "Growth rate") {
+      show_elements("growth")
+      updateSelectInput(session, "growth", label = "Annual growth rate (%)")
+    } else if(input$projected_output_measure == "Target year output") {
+      show_elements("growth")
+      updateSelectInput(session, "growth", label = paste0("Target year output in ", activity_unit()))
+    } else if(input$projected_output_measure == "Fixed market share") {
+      hide_elements("growth")
+    }
+  })
+
 }
