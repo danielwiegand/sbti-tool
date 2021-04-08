@@ -85,10 +85,17 @@ ui <- fluidPage(
                   girafeOutput("main_plot", height = "100%"),
                   
                   fluidRow(
+                    
                     column(7,
-                  
-                      dataTableOutput("results_table")
-                      
+                           
+                           girafeOutput("intensity_plot", height = "100%")
+                           
+                           ),
+                    
+                    column(5,
+                           
+                           dataTableOutput("results_table")
+                           
                     )
                     
                   )
