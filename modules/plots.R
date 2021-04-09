@@ -132,7 +132,7 @@ results_table <- reactive({
 
 output$results_table_heading <- renderUI({
   req(emission_path())
-  h3("Results table")
+  h3("Summary of results")
 })
 
 output$results_table <- renderDataTable(
@@ -143,3 +143,26 @@ output$results_table <- renderDataTable(
     info = FALSE
   )
 )
+
+output$full_results_table_heading <- renderUI({
+  req(emission_path())
+  h3("Full results")
+})
+
+full_results_table <- reactive({
+  emission_path() %>%
+    select(-data_id) %>%
+    mutate(emissions = format(emissions, nsmall = 2)) %>%
+    group_by(scenario, scope) %>%
+    pivot_wider(names_from = year, values_from = emissions)
+})
+
+output$full_results_table <- renderDataTable(
+  expr = full_results_table(),
+  options = list(scrollX = TRUE, 
+                 scrollCollapse = TRUE,
+                 paging = FALSE,
+                 searching = FALSE,
+                 info = FALSE
+                 )
+  )
