@@ -125,7 +125,7 @@ results_table <- reactive({
     drop_na() %>%
     rename(`Base year` = !!names(.[3]), `Target year` = !!names(.[4]), Scenario = scenario, Scope = scope) %>%
     mutate(Scope = recode_for_plot(Scope)) %>%
-    mutate(Reduction = paste0(round((1 - `Target year` / `Base year`) * 100), "%"),
+    mutate(Reduction = paste0(round((1 - `Target year` / `Base year`) * 100, 2), "%"),
            `Base year` = paste0(round(`Base year`, 2), " t CO2e"),
            `Target year` = paste0(round(`Target year`, 2), " t CO2e"))
 })
