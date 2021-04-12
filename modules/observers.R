@@ -32,7 +32,8 @@ observeEvent(input$target_setting_method, {
   }
 })
 
-observeEvent(input$sda_sector, {
+observeEvent({input$sda_sector
+              input$target_setting_method}, {
   "Depending on selected SDA sector, show / hide the SDA scenario element"
   if(input$target_setting_method == "Sectoral Decarbonization Approach" & input$sda_sector == "Power") {
     show_elements("sda_scenario")

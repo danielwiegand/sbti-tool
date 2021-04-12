@@ -131,7 +131,7 @@ server <- function(input, output, session) {
         column_to_rownames("year") %>%
         select(value)
     } else if(input$projected_output_measure == "Fixed market share") {
-      "User indicates that activity grows identical to the sector activity"
+      # User indicates that activity grows identical to the sector activity
       out <- data %>%
         mutate(value = normalized_sector_activity()) %>%
         column_to_rownames("year") %>%
@@ -183,7 +183,7 @@ server <- function(input, output, session) {
     return(out)
   }
   
-  emission_path = reactive({
+  emission_path <- reactive({
     "The resulting emission paths (= the Science Based Target)"
     
     # Set required input fields and scenarios

@@ -144,6 +144,8 @@ output$results_table <- renderDataTable(
   )
 )
 
+# FULL RESULTS TABLE ####
+
 output$full_results_table_heading <- renderUI({
   req(emission_path())
   h3("Full results")
